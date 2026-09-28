@@ -1,0 +1,18 @@
+name: remind
+
+services:
+  remind:
+    build: .
+    image: remind:latest
+    container_name: remind
+    restart: unless-stopped
+    # 共享宿主网络：cloudflared tunnel 直连 localhost:8085，无需端口映射
+    network_mode: host
+    environment:
+      # SMTP 密码不写进 config.yaml 时由 .env 注入（见 config.yaml.example）
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+    volumes:
+      # 配置（config.yaml）与数据（remind.db/-wal/-shm）全部落宿主机，容器重建不丢。
+      # 必须用绝对路径绑定挂载：runner 的 checkout 工作区会被重建，相对路径会
+      # 跟着切到空目录（cicd-console 踩过的坑，见其 compose 注释）
+      - /opt/remind:/data

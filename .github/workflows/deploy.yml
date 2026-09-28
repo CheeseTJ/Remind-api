@@ -1,8 +1,9 @@
 name: Deploy
 
 # push 到 master 自动构建并部署到本机（self-hosted runner 与服务同机）：
-#   构建 Go 单二进制 → 原子替换 → systemctl restart remind
-# 崩溃恢复由 systemd 负责（Restart=always + 开机自启）。
+#   docker compose build → up -d 重建容器 → 健康检查。
+# 崩溃恢复由 compose 的 restart: unless-stopped 负责。
+# 数据（config.yaml / remind.db）在宿主机 /opt/remind，容器重建不丢。
 on:
   push:
     branches: [master]
@@ -11,8 +12,9 @@ on:
       - 'internal/**'
       - 'go.mod'
       - 'go.sum'
-      - 'Makefile'
-      - 'deploy/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.dockerignore'
       - '.github/workflows/deploy.yml'
   workflow_dispatch: {}
 
@@ -24,15 +26,12 @@ jobs:
         with:
           clean: false
 
-      - name: Build（Go 单二进制）
+      - name: Build & Up（docker compose）
         run: |
-          export PATH=/usr/local/bin:$PATH
-          make build
+          sudo docker compose build
+          sudo docker compose up -d
 
-      - name: Deploy（原子替换 + 重启 + 健康检查）
+      - name: 健康检查
         run: |
-          install -m 755 bin/remind /home/ubuntu/code/Remind/Remind-api/bin/remind.new
-          mv -f /home/ubuntu/code/Remind/Remind-api/bin/remind.new /home/ubuntu/code/Remind/Remind-api/bin/remind
-          sudo systemctl restart remind
-          sleep 1
+          sleep 2
           curl -fsS http://127.0.0.1:8085/healthz

@@ -1,0 +1,9 @@
+# 本地运行产物与隐私数据禁止进入构建上下文
+bin/
+*.db
+*.db-wal
+*.db-shm
+*.log
+nohup.out
+config.yaml
+.git/
