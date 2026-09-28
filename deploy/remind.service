@@ -1,0 +1,18 @@
+[Unit]
+Description=Remind 后端 API（岁记）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/code/Remind/api
+ExecStart=/home/ubuntu/code/Remind/api/bin/remind -config /home/ubuntu/code/Remind/api/config.yaml
+# 崩溃自动拉起：进程退出 3 秒后重启，无论正常退出还是异常
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+# 日志走 journald：journalctl -u remind -f
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,38 @@
+name: Deploy
+
+# push 到 master 自动构建并部署到本机（self-hosted runner 与服务同机）：
+#   构建 Go 单二进制 → 原子替换 → systemctl restart remind
+# 崩溃恢复由 systemd 负责（Restart=always + 开机自启）。
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'deploy/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Build（Go 单二进制）
+        run: |
+          export PATH=/usr/local/bin:$PATH
+          make build
+
+      - name: Deploy（原子替换 + 重启 + 健康检查）
+        run: |
+          install -m 755 bin/remind /home/ubuntu/code/Remind/api/bin/remind.new
+          mv -f /home/ubuntu/code/Remind/api/bin/remind.new /home/ubuntu/code/Remind/api/bin/remind
+          sudo systemctl restart remind
+          sleep 1
+          curl -fsS http://127.0.0.1:8085/healthz

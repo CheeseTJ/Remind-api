@@ -1,0 +1,15 @@
+# Remind 配置示例，复制为 config.yaml 后修改
+listen: ":8085"
+db_path: "remind.db"
+daily_send_time: "08:00" # 每日发送时间，北京时间 HH:MM
+app_name: "remind"
+
+# 用户中心地址（必填）
+ucenter_base_url: "https://ucenter.june-t.top"
+
+smtp:
+  host: "smtp.example.com" # 必填
+  port: 465
+  username: "user@example.com" # 必填；密码建议不写在此处，用环境变量 SMTP_PASSWORD
+  # password: ""               # 选填，环境变量 SMTP_PASSWORD 可覆盖
+  # from: "user@example.com"   # 选填，默认同 username
