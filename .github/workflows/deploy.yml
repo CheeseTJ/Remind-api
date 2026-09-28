@@ -31,8 +31,8 @@ jobs:
 
       - name: Deploy（原子替换 + 重启 + 健康检查）
         run: |
-          install -m 755 bin/remind /home/ubuntu/code/Remind/api/bin/remind.new
-          mv -f /home/ubuntu/code/Remind/api/bin/remind.new /home/ubuntu/code/Remind/api/bin/remind
+          install -m 755 bin/remind /home/ubuntu/code/Remind/Remind-api/bin/remind.new
+          mv -f /home/ubuntu/code/Remind/Remind-api/bin/remind.new /home/ubuntu/code/Remind/Remind-api/bin/remind
           sudo systemctl restart remind
           sleep 1
           curl -fsS http://127.0.0.1:8085/healthz
