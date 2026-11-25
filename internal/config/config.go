@@ -25,6 +25,23 @@ type Config struct {
 	UcenterBaseURL string `yaml:"ucenter_base_url"` // 用户中心地址，必填
 	AppName        string `yaml:"app_name"`         // 应用名，默认 "remind"
 	SMTP           SMTP   `yaml:"smtp"`
+	// MailGateway 内部邮件网关配置。其他服务（如 CICD）通过它发信，
+	// 这样 SMTP 凭据只在这一处。
+	MailGateway MailGateway `yaml:"mail_gateway"`
+}
+
+// MailGateway 指向独立邮件网关（Mail-api）的客户端配置。
+//
+// 为什么不在这里实现 SMTP：项目里四个服务（Remind/CICD/Backup/Ucenter）
+// 都要发信。各自直连 SMTP 会导致凭据散落、兼容代码重复、换服务商要改
+// 多个仓库。统一成独立服务后，这里只需要一个 URL。
+//
+// 留空则退回本地 SMTP 直连（见 smtp 段），保证老部署仍能工作。
+type MailGateway struct {
+	// URL 网关发信地址，如 http://127.0.0.1:8095/internal/mail/send
+	URL string `yaml:"url"`
+	// Token Bearer 令牌
+	Token string `yaml:"token"`
 }
 
 // Load 读取 yaml 配置并应用默认值与环境变量覆盖，返回校验后的配置。
@@ -63,6 +80,14 @@ func (c *Config) applyDefaults() {
 	if c.SMTP.Port == 0 {
 		c.SMTP.Port = 465
 	}
+	// 邮件网关地址与令牌支持环境变量覆盖（部署时注入，不落配置文件）
+	if u := os.Getenv("MAIL_GATEWAY_URL"); u != "" {
+		c.MailGateway.URL = u
+	}
+	if t := os.Getenv("MAIL_GATEWAY_TOKEN"); t != "" {
+		c.MailGateway.Token = t
+	}
+
 	// 环境变量优先覆盖 SMTP 密码
 	if p := os.Getenv("SMTP_PASSWORD"); p != "" {
 		c.SMTP.Password = p

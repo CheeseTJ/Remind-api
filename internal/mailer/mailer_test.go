@@ -73,7 +73,7 @@ func TestBuildMIME(t *testing.T) {
 	const subj = "岁记提醒：测试"
 	const htmlBody = "<p>你好，岁记</p>"
 
-	msg := buildMIME(from, to, subj, htmlBody)
+	msg := buildMIME(from, to, subj, htmlBody, "")
 
 	// 头部基础断言
 	if !strings.Contains(msg, "From: ") || !strings.Contains(msg, from) {

@@ -19,8 +19,12 @@ import (
 	"time"
 )
 
-// fromName 发件人显示名称。
-const fromName = "岁记提醒"
+// defaultFromName 未指定发件人显示名时的默认值。
+//
+// 原本写死成「岁记提醒」——那时只有 Remind 一个调用方。现在多了内部邮件
+// 网关，CICD 的证书到期邮件也走这里，再用「岁记提醒」会让收件人完全分不清
+// 这封信是哪个系统发的。所以改成可配置，每个调用方传自己的名字。
+const defaultFromName = "岁记提醒"
 
 // SMTPConfig SMTP 连接与认证配置。
 type SMTPConfig struct {
@@ -33,14 +37,26 @@ type SMTPConfig struct {
 
 // Mailer 邮件发送器；send 与 sleep 均可注入替换，便于测试。
 type Mailer struct {
-	cfg   SMTPConfig
-	sleep func(time.Duration)        // 重试间隔等待，默认 time.Sleep
-	send  func(to, msg string) error // 连接层投递函数，默认 deliver，测试可注入替身
+	cfg SMTPConfig
+	// fromName 发件人显示名。为空时用 defaultFromName。
+	//
+	// 单独存而不是塞进 SMTPConfig：SMTP 配置描述「用哪个邮箱发」，
+	// 显示名描述「以谁的名义发」，两者生命周期不同。
+	fromName string
+	sleep    func(time.Duration)        // 重试间隔等待，默认 time.Sleep
+	send     func(to, msg string) error // 连接层投递函数，默认 deliver，测试可注入替身
 }
 
 // New 创建使用默认投递与等待实现的 Mailer。
 func New(cfg SMTPConfig) *Mailer {
-	m := &Mailer{cfg: cfg, sleep: time.Sleep}
+	return NewWithName(cfg, "")
+}
+
+// NewWithName 与 New 相同，但可指定发件人显示名。
+//
+// 显示名为空时退回 defaultFromName，保持既有调用方行为不变。
+func NewWithName(cfg SMTPConfig, fromName string) *Mailer {
+	m := &Mailer{cfg: cfg, fromName: strings.TrimSpace(fromName), sleep: time.Sleep}
 	m.send = m.deliver
 	return m
 }
@@ -51,7 +67,7 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 	if send == nil {
 		send = m.deliver
 	}
-	msg := buildMIME(m.cfg.From, to, subject, htmlBody)
+	msg := buildMIME(m.cfg.From, to, subject, htmlBody, m.fromName)
 	return send(to, msg)
 }
 
@@ -72,6 +88,35 @@ func (m *Mailer) SendWithRetry(to, subject, htmlBody string) error {
 		}
 		err = m.Send(to, subject, htmlBody)
 		if err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// SendWithRetryAs 与 SendWithRetry 相同，但临时指定发件人显示名。
+//
+// 用于内部邮件网关：同一个网关被多个系统共用，每封信要以各自的名义署名，
+// 否则收件人分不清「岁记提醒」发来的到底是不是备忘。
+//
+// 显示名为空时沿用实例默认值，行为与 SendWithRetry 一致。
+func (m *Mailer) SendWithRetryAs(fromName, to, subject, htmlBody string) error {
+	sleep := m.sleep
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	send := m.send
+	if send == nil {
+		send = m.deliver
+	}
+	msg := buildMIME(m.cfg.From, to, subject, htmlBody, fromName)
+
+	var err error
+	for attempt := 0; attempt <= len(retryDelays); attempt++ {
+		if attempt > 0 {
+			sleep(retryDelays[attempt-1])
+		}
+		if err = send(to, msg); err == nil {
 			return nil
 		}
 	}
@@ -203,7 +248,10 @@ func isLocalHost(host string) bool {
 // buildMIME 构造完整 MIME 报文（纯函数，便于测试）：
 // 头部含 From/To/Subject（RFC 2047 base64 编码主题）、
 // text/html; charset=UTF-8 与 base64 正文（按 76 字符换行）。
-func buildMIME(from, to, subject, htmlBody string) string {
+func buildMIME(from, to, subject, htmlBody, fromName string) string {
+	if strings.TrimSpace(fromName) == "" {
+		fromName = defaultFromName
+	}
 	fromAddr := (&mail.Address{Name: fromName, Address: from}).String()
 	toAddr := (&mail.Address{Address: to}).String()
 	subj := mime.BEncoding.Encode("UTF-8", subject)

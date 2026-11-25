@@ -19,6 +19,7 @@ import (
 	"remind/internal/auth"
 	"remind/internal/config"
 	"remind/internal/mailer"
+	"remind/internal/mailgw"
 	"remind/internal/memo"
 	"remind/internal/scheduler"
 	"remind/internal/store"
@@ -42,14 +43,30 @@ func main() {
 	}
 	defer db.Close()
 
-	// 邮件发送器
-	mail := mailer.New(mailer.SMTPConfig{
+	// 邮件发送：优先走独立邮件网关（Mail-api），未配置则退回本地 SMTP。
+	//
+	// 为什么优先网关：SMTP 凭据已在 Mail-api 集中管理，本服务不再需要
+	// 维护一份。退回本地的分支保留给「只想跑 Remind 一个服务」的场景。
+	localMail := mailer.NewWithName(mailer.SMTPConfig{
 		Host:     cfg.SMTP.Host,
 		Port:     cfg.SMTP.Port,
 		Username: cfg.SMTP.Username,
 		Password: cfg.SMTP.Password,
 		From:     cfg.SMTP.From,
+	}, "岁记提醒")
+
+	var mailSender scheduler.Sender = localMail
+	gw := mailgw.New(mailgw.Config{
+		URL:      cfg.MailGateway.URL,
+		Token:    cfg.MailGateway.Token,
+		FromName: "岁记提醒",
 	})
+	if gw.Enabled() {
+		mailSender = gw
+		log.Printf("邮件走内部网关: %s", cfg.MailGateway.URL)
+	} else {
+		log.Printf("邮件走本地 SMTP: %s:%d", cfg.SMTP.Host, cfg.SMTP.Port)
+	}
 
 	// 注入 next_date 钩子：从今天（北京）起向后找最多 500 天内的第一个发生日
 	memo.NextOccurrenceHook = scheduler.NextOccurrence
@@ -92,7 +109,7 @@ func main() {
 		body := `<!DOCTYPE html><html lang="zh-CN"><body style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;">` +
 			`<p style="font-size:14px;color:#5a4a38;">这是一封来自「岁记」的测试邮件，收到即说明 SMTP 配置正常。</p>` +
 			`</body></html>`
-		if err := mail.SendWithRetry(email, "[岁记] 测试邮件", body); err != nil {
+		if err := mailSender.SendWithRetry(email, "[岁记] 测试邮件", body); err != nil {
 			log.Printf("测试邮件发送失败 to=%s: %v", email, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "发送失败，请稍后重试"})
 			return
@@ -121,7 +138,7 @@ func main() {
 	// 每日调度器：ctx 随优雅退出取消
 	schedCtx, schedCancel := context.WithCancel(context.Background())
 	defer schedCancel()
-	scheduler.New(db, mail, cfg.DailySendTime).Start(schedCtx)
+	scheduler.New(db, mailSender, cfg.DailySendTime).Start(schedCtx)
 
 	// 启动 HTTP 服务
 	srv := &http.Server{

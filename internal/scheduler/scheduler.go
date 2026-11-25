@@ -102,26 +102,34 @@ func NextOccurrence(m memo.Memo, now time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// Sender 调度器依赖的最小发信能力。
+//
+// 用接口而不是具体类型：这样既可以用本地 mailer 直连 SMTP，也可以注入
+// 邮件网关客户端（mailgw.Client）。调用方决定用哪个，调度器不关心。
+type Sender interface {
+	SendWithRetry(to, subject, body string) error
+}
+
 // Scheduler 每日调度器。
 type Scheduler struct {
 	db       *sql.DB
-	mail     *mailer.Mailer
 	sendTime string                               // 每日发送时刻 "HH:MM"（北京时间）
 	now      func() time.Time                     // 可注入时钟，默认 time.Now
-	send     func(to, subject, body string) error // 可注入发送函数，默认 mail.SendWithRetry
+	send     func(to, subject, body string) error // 实际发送函数
 	logger   *log.Logger
 }
 
 // New 创建调度器；sendTime 为北京时间的 "HH:MM"。
-func New(db *sql.DB, mail *mailer.Mailer, sendTime string) *Scheduler {
+func New(db *sql.DB, sender Sender, sendTime string) *Scheduler {
 	s := &Scheduler{
 		db:       db,
-		mail:     mail,
 		sendTime: sendTime,
 		now:      time.Now,
 		logger:   log.Default(),
 	}
-	s.send = mail.SendWithRetry
+	if sender != nil {
+		s.send = sender.SendWithRetry
+	}
 	return s
 }
 
